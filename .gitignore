@@ -1,0 +1,33 @@
+# Environment files
+.env
+.env.local
+*.env
+
+# Database files
+*.db
+*.sqlite
+*.dump
+*.backup
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+node_modules/
