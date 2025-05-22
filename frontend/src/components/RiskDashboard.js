@@ -63,7 +63,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4, display: 'flex', justifyContent: 'center' }}>
+      <Container maxWidth="xl" sx={{ mt: 4, mb: 4, display: 'flex', justifyContent: 'center' }}>
         <CircularProgress />
       </Container>
     );
@@ -71,7 +71,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
         <Alert severity="error">{error}</Alert>
       </Container>
     );
@@ -89,7 +89,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       {/* Header */}
       <Typography variant="h3" component="h1" gutterBottom sx={{ color: '#d32f2f', fontWeight: 'bold' }}>
         Risk Analytics Dashboard
