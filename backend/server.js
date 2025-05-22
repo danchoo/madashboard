@@ -172,6 +172,36 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Get risk metrics for portfolio
+app.get('/api/portfolio/:id/risk-metrics', async (req, res) => {
+  try {
+    const portfolioId = req.params.id;
+    const result = await pool.query(`
+      SELECT 
+        portfolio_name,
+        calculation_date,
+        var_1d_95,
+        var_1d_99,
+        annualized_volatility,
+        sharpe_ratio,
+        max_drawdown,
+        tracking_error,
+        beta
+      FROM v_latest_risk_metrics
+      WHERE portfolio_id = $1
+    `, [portfolioId]);
+
+    if (result.rows.length > 0) {
+      res.json(result.rows[0]);
+    } else {
+      res.status(404).json({ error: 'No risk metrics found' });
+    }
+  } catch (err) {
+    console.error('Error fetching risk metrics:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`🚀 Portfolio API server running on http://localhost:${port}`);
