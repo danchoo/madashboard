@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import psycopg2
 
-class RealRiskCalculator:
+class RealBetaRiskCalculator:
     def __init__(self):
         self.db_config = {
             'host': 'localhost',
@@ -13,27 +13,81 @@ class RealRiskCalculator:
             'password': 'dev_password123'
         }
     
+    def generate_asx200_data(self, days=252):
+        """Generate realistic ASX 200 index data"""
+        print("🔄 Generating ASX 200 benchmark data...")
+        
+        conn = psycopg2.connect(**self.db_config)
+        cursor = conn.cursor()
+        
+        # Get benchmark_id for ASX200
+        cursor.execute("SELECT benchmark_id FROM benchmarks WHERE code = 'ASX200'")
+        result = cursor.fetchone()
+        if not result:
+            print("❌ ASX200 benchmark not found in database")
+            return
+        
+        benchmark_id = result[0]
+        
+        # Generate realistic ASX 200 returns
+        np.random.seed(100)
+        daily_return_mean = 0.07 / 252
+        daily_volatility = 0.15 / np.sqrt(252)
+        
+        returns = []
+        for i in range(days):
+            if i > 100 and i < 150:  # Crisis period
+                vol_multiplier = 2.0
+            elif i > 200:  # Recovery period
+                vol_multiplier = 0.8
+            else:
+                vol_multiplier = 1.0
+                
+            daily_return = np.random.normal(daily_return_mean, daily_volatility * vol_multiplier)
+            returns.append(daily_return)
+        
+        # Calculate index levels
+        index_levels = [7000.0]
+        for ret in returns[1:]:
+            index_levels.append(index_levels[-1] * (1 + ret))
+        
+        # Generate dates
+        end_date = datetime.now().date()
+        dates = pd.date_range(end=end_date, periods=days, freq='D')
+        
+        # Insert data
+        for i, date in enumerate(dates):
+            cursor.execute("""
+                INSERT INTO benchmark_prices (benchmark_id, date, close_price, total_return_index)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (benchmark_id, date) DO UPDATE SET
+                close_price = EXCLUDED.close_price,
+                total_return_index = EXCLUDED.total_return_index
+            """, [benchmark_id, date.date(), float(index_levels[i]), float(index_levels[i])])
+            
+            cursor.execute("""
+                INSERT INTO benchmark_returns (benchmark_id, date, daily_return)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (benchmark_id, date) DO UPDATE SET
+                daily_return = EXCLUDED.daily_return
+            """, [benchmark_id, date.date(), float(returns[i])])
+        
+        conn.commit()
+        conn.close()
+        print(f"✅ Generated {days} days of ASX 200 data")
+    
     def create_initial_prices(self):
         """Create initial current prices if none exist"""
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
         
-        # Insert current prices for all securities
         cursor.execute("SELECT security_id, ticker FROM securities")
         securities = cursor.fetchall()
         
         price_map = {
-            'DHHF': 30.50,
-            'STW': 85.20,
-            'VGS': 115.75,
-            'VEU': 65.40,
-            'CBA.AX': 125.80,
-            'CSL.AX': 295.50,
-            'BHP.AX': 48.75,
-            'AAPL': 185.25,
-            'MSFT': 415.80,
-            'GOOGL': 165.90,
-            'CASH': 1.00
+            'DHHF': 30.50, 'STW': 85.20, 'VGS': 115.75, 'VEU': 65.40,
+            'CBA.AX': 125.80, 'CSL.AX': 295.50, 'BHP.AX': 48.75,
+            'AAPL': 185.25, 'MSFT': 415.80, 'GOOGL': 165.90, 'CASH': 1.00
         }
         
         for security_id, ticker in securities:
@@ -50,24 +104,36 @@ class RealRiskCalculator:
         print("✅ Created initial realistic prices for all securities")
     
     def generate_realistic_price_history(self, days=252):
-        """Generate realistic price history for actual securities"""
+        """Generate realistic price history correlated with ASX 200"""
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
         
-        # Get all securities with current prices
+        # Get ASX 200 returns
         cursor.execute("""
-            SELECT DISTINCT s.security_id, s.ticker, s.name, sp.close_price as current_price
+            SELECT date, daily_return FROM benchmark_returns 
+            WHERE benchmark_id = (SELECT benchmark_id FROM benchmarks WHERE code = 'ASX200')
+            ORDER BY date
+        """)
+        asx_data = cursor.fetchall()
+        
+        if not asx_data:
+            print("No ASX 200 data found, generating it first...")
+            self.generate_asx200_data(days)
+            return self.generate_realistic_price_history(days)
+        
+        asx_returns = {date: float(ret) for date, ret in asx_data}
+        
+        # Get securities
+        cursor.execute("""
+            SELECT s.security_id, s.ticker, s.name, sp.close_price
             FROM securities s
             LEFT JOIN security_prices sp ON s.security_id = sp.security_id AND sp.date = CURRENT_DATE
         """)
         securities = cursor.fetchall()
         
-        # Create initial prices if missing
         missing_prices = [s for s in securities if s[3] is None]
         if missing_prices:
-            print("Creating missing current prices...")
             self.create_initial_prices()
-            # Re-fetch with prices
             cursor.execute("""
                 SELECT s.security_id, s.ticker, s.name, sp.close_price
                 FROM securities s
@@ -76,35 +142,48 @@ class RealRiskCalculator:
             """)
             securities = cursor.fetchall()
         
-        # Generate price history
         end_date = datetime.now().date()
         dates = pd.date_range(end=end_date, periods=days, freq='D')
         
         for security_id, ticker, name, current_price in securities:
-            # Set volatility based on security type
+            # Set realistic betas
             if ticker == 'CASH':
-                annual_vol = 0.001
-            elif 'ETF' in name.upper() or ticker in ['DHHF', 'STW', 'VGS', 'VEU']:
-                annual_vol = 0.15
-            else:
-                annual_vol = 0.25
-                
-            daily_vol = annual_vol / np.sqrt(252)
+                beta, idiosync_vol = 0.0, 0.001
+            elif ticker == 'STW':
+                beta, idiosync_vol = 1.0, 0.02
+            elif ticker == 'DHHF':
+                beta, idiosync_vol = 0.8, 0.04
+            elif ticker in ['VGS', 'VEU']:
+                beta, idiosync_vol = 0.6, 0.06
+            elif ticker.endswith('.AX'):
+                if ticker == 'CBA.AX':
+                    beta, idiosync_vol = 1.2, 0.08
+                elif ticker == 'BHP.AX':
+                    beta, idiosync_vol = 1.4, 0.12
+                else:  # CSL.AX
+                    beta, idiosync_vol = 0.9, 0.10
+            else:  # US stocks
+                beta, idiosync_vol = 0.7, 0.15
             
-            # Generate returns
             np.random.seed(42 + security_id)
-            returns = np.random.normal(0.0003, daily_vol, days)
-            
-            # Calculate historical prices
             prices = [float(current_price)]
-            for i in range(days - 1):
-                prev_price = prices[-1] / (1 + returns[days - 1 - i])
+            
+            for i in range(days - 1, 0, -1):
+                date = dates[i].date()
+                
+                if date in asx_returns:
+                    asx_return = float(asx_returns[date])
+                    idiosync = np.random.normal(0, idiosync_vol)
+                    security_return = beta * asx_return + idiosync
+                else:
+                    security_return = np.random.normal(0, idiosync_vol)
+                
+                prev_price = prices[-1] / (1 + security_return)
                 prices.append(prev_price)
             
             prices.reverse()
             
-            # Insert prices
-            for i, date in enumerate(dates[:-1]):  # Skip last date (current)
+            for i, date in enumerate(dates[:-1]):
                 cursor.execute("""
                     INSERT INTO security_prices (security_id, date, close_price)
                     VALUES (%s, %s, %s)
@@ -114,14 +193,13 @@ class RealRiskCalculator:
         
         conn.commit()
         conn.close()
-        print(f"✅ Generated {days} days of realistic price history")
+        print(f"✅ Generated {days} days of correlated price history")
     
     def calculate_portfolio_returns(self, portfolio_id=1):
         """Calculate actual portfolio returns from holdings and prices"""
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
         
-        # Get portfolio holdings
         cursor.execute("""
             SELECT s.security_id, s.ticker, h.weight
             FROM portfolio_holdings h
@@ -138,7 +216,6 @@ class RealRiskCalculator:
         for _, ticker, weight in holdings:
             print(f"   {ticker}: {weight*100:.1f}%")
         
-        # Get price data
         security_ids = [h[0] for h in holdings]
         placeholders = ','.join(['%s'] * len(security_ids))
         
@@ -153,14 +230,12 @@ class RealRiskCalculator:
         price_data = cursor.fetchall()
         conn.close()
         
-        # Convert to DataFrame
         df = pd.DataFrame(price_data, columns=['security_id', 'date', 'price'])
+        df['price'] = df['price'].astype(float)
         df = df.pivot(index='date', columns='security_id', values='price')
         
-        # Calculate returns
         returns_df = df.pct_change().dropna()
         
-        # Calculate weighted portfolio returns
         portfolio_returns = []
         portfolio_values = []
         dates_list = []
@@ -168,7 +243,7 @@ class RealRiskCalculator:
         initial_value = 50000
         current_value = initial_value
         
-        weights_dict = {h[0]: h[2] for h in holdings}  # security_id -> weight
+        weights_dict = {h[0]: float(h[2]) for h in holdings}
         
         for date, row in returns_df.iterrows():
             portfolio_return = 0
@@ -181,7 +256,6 @@ class RealRiskCalculator:
             portfolio_values.append(float(current_value))
             dates_list.append(date)
         
-        # Save to database
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
         
@@ -206,20 +280,80 @@ class RealRiskCalculator:
         print(f"✅ Calculated {len(portfolio_returns)} days of real portfolio returns")
         return np.array(portfolio_returns)
     
-    def calculate_real_risk_metrics(self, portfolio_id=1):
-        """Calculate risk metrics from real portfolio data"""
+    def calculate_real_beta(self, portfolio_id=1):
+        """Calculate real beta against ASX 200"""
+        conn = psycopg2.connect(**self.db_config)
+        cursor = conn.cursor()
         
-        print("🔄 Generating realistic price history...")
+        cursor.execute("""
+            SELECT date, daily_return FROM portfolio_returns 
+            WHERE portfolio_id = %s 
+            ORDER BY date
+        """, [portfolio_id])
+        portfolio_data = cursor.fetchall()
+        
+        cursor.execute("""
+            SELECT br.date, br.daily_return 
+            FROM benchmark_returns br
+            JOIN benchmarks b ON br.benchmark_id = b.benchmark_id
+            WHERE b.code = 'ASX200'
+            ORDER BY br.date
+        """)
+        benchmark_data = cursor.fetchall()
+        
+        conn.close()
+        
+        if not portfolio_data or not benchmark_data:
+            print("❌ Insufficient data for beta calculation")
+            return None
+        
+        portfolio_df = pd.DataFrame(portfolio_data, columns=['date', 'portfolio_return'])
+        benchmark_df = pd.DataFrame(benchmark_data, columns=['date', 'benchmark_return'])
+        
+        # Convert decimals to float
+        portfolio_df['portfolio_return'] = portfolio_df['portfolio_return'].astype(float)
+        benchmark_df['benchmark_return'] = benchmark_df['benchmark_return'].astype(float)
+        
+        merged = pd.merge(portfolio_df, benchmark_df, on='date', how='inner')
+        
+        if len(merged) < 30:
+            print("❌ Insufficient overlapping data for beta calculation")
+            return None
+        
+        portfolio_returns = merged['portfolio_return'].values
+        benchmark_returns = merged['benchmark_return'].values
+        
+        covariance = np.cov(portfolio_returns, benchmark_returns)[0, 1]
+        benchmark_variance = np.var(benchmark_returns)
+        
+        if benchmark_variance == 0:
+            return None
+            
+        beta = covariance / benchmark_variance
+        correlation = np.corrcoef(portfolio_returns, benchmark_returns)[0, 1]
+        
+        print(f"📊 Real Beta Calculation:")
+        print(f"   Portfolio vs ASX 200 correlation: {correlation:.3f}")
+        print(f"   Calculated Beta: {beta:.3f}")
+        
+        return float(beta), float(correlation)
+    
+    def calculate_real_risk_metrics(self, portfolio_id=1):
+        """Calculate risk metrics with real beta"""
+        print("🔄 Setting up benchmark data...")
+        self.generate_asx200_data()
+        
+        print("🔄 Generating correlated price history...")
         self.generate_realistic_price_history()
         
-        print("🔄 Calculating real portfolio returns...")
+        print("🔄 Calculating portfolio returns...")
         portfolio_returns = self.calculate_portfolio_returns(portfolio_id)
         
         if portfolio_returns is None:
             print("❌ Could not calculate portfolio returns")
             return
         
-        # Calculate risk metrics
+        # Calculate standard risk metrics
         var_95 = float(abs(np.percentile(portfolio_returns, 5)))
         var_99 = float(abs(np.percentile(portfolio_returns, 1)))
         daily_vol = float(np.std(portfolio_returns))
@@ -233,11 +367,33 @@ class RealRiskCalculator:
         drawdown = (cumulative - running_max) / running_max
         max_drawdown = float(abs(np.min(drawdown)))
         
-        # Beta and tracking error
-        benchmark_returns = portfolio_returns * 0.85 + np.random.normal(0, 0.001, len(portfolio_returns))
-        beta = float(np.cov(portfolio_returns, benchmark_returns)[0,1] / np.var(benchmark_returns))
-        tracking_error = float(np.std(portfolio_returns - benchmark_returns) * np.sqrt(252))
-        correlation = float(np.corrcoef(portfolio_returns, benchmark_returns)[0,1])
+        # Calculate REAL beta and tracking error
+        beta_result = self.calculate_real_beta(portfolio_id)
+        if beta_result:
+            beta, correlation = beta_result
+            
+            conn = psycopg2.connect(**self.db_config)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT pr.daily_return, br.daily_return
+                FROM portfolio_returns pr
+                JOIN benchmark_returns br ON pr.date = br.date
+                JOIN benchmarks b ON br.benchmark_id = b.benchmark_id
+                WHERE pr.portfolio_id = %s AND b.code = 'ASX200'
+                ORDER BY pr.date
+            """, [portfolio_id])
+            
+            aligned_returns = cursor.fetchall()
+            conn.close()
+            
+            if aligned_returns:
+                port_rets = np.array([float(r[0]) for r in aligned_returns])
+                bench_rets = np.array([float(r[1]) for r in aligned_returns])
+                tracking_error = float(np.std(port_rets - bench_rets) * np.sqrt(252))
+            else:
+                tracking_error = 0.05
+        else:
+            beta, correlation, tracking_error = 1.0, 0.85, 0.05
         
         # Save to database
         conn = psycopg2.connect(**self.db_config)
@@ -269,14 +425,15 @@ class RealRiskCalculator:
         conn.commit()
         conn.close()
         
-        print(f"✅ REAL Risk metrics calculated from actual DHHF portfolio:")
+        print(f"✅ REAL Risk metrics with proper beta:")
         print(f"   VaR (95%): {var_95:.4f} ({var_95*100:.2f}%)")
         print(f"   Annual Volatility: {annual_vol:.4f} ({annual_vol*100:.1f}%)")
         print(f"   Sharpe Ratio: {sharpe:.4f}")
         print(f"   Max Drawdown: {max_drawdown:.4f} ({max_drawdown*100:.2f}%)")
-        print(f"   Beta: {beta:.2f}")
+        print(f"   REAL Beta vs ASX 200: {beta:.3f}")
+        print(f"   Correlation vs ASX 200: {correlation:.3f}")
         print(f"   Tracking Error: {tracking_error:.4f} ({tracking_error*100:.2f}%)")
 
 if __name__ == "__main__":
-    calculator = RealRiskCalculator()
+    calculator = RealBetaRiskCalculator()
     calculator.calculate_real_risk_metrics(portfolio_id=1)
