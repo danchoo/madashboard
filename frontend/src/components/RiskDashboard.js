@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import BenchmarkSelector from './BenchmarkSelector';
 import { 
   Container, 
   Grid, 
@@ -86,6 +87,8 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
         {riskData?.portfolio_name} - Risk Metrics 📊
       </Typography>
 
+    <BenchmarkSelector portfolioId={portfolioId} />
+     
       {/* Risk Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
