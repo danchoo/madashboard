@@ -388,6 +388,67 @@ app.post('/api/portfolio/:id/calculate-risk', async (req, res) => {
   }
 });
 
+// Get data quality overview
+app.get('/api/data-quality', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        entity_type,
+        identifier,
+        name,
+        data_source,
+        first_real_date,
+        last_real_date,
+        total_records,
+        real_records,
+        synthetic_records,
+        data_quality_score,
+        quality_rating,
+        data_type
+      FROM v_data_quality_overview
+      ORDER BY entity_type, identifier
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching data quality:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get portfolio data quality summary
+app.get('/api/portfolio/:id/data-quality', async (req, res) => {
+  try {
+    const portfolioId = req.params.id;
+    
+    // Get data quality for portfolio holdings
+    const result = await pool.query(`
+      SELECT 
+        s.ticker,
+        s.name,
+        h.weight,
+        dqs.data_source,
+        dqs.data_quality_score,
+        dqs.quality_rating,
+        dqs.data_type,
+        dqs.last_real_date
+      FROM portfolio_holdings h
+      JOIN securities s ON h.security_id = s.security_id
+      LEFT JOIN v_data_quality_overview dqs ON dqs.entity_type = 'security' AND dqs.entity_id = s.security_id
+      WHERE h.portfolio_id = $1 AND h.date = CURRENT_DATE
+      ORDER BY h.weight DESC
+    `, [portfolioId]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching portfolio data quality:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+console.log(`   GET /api/data-quality - Overall data quality status`);
+console.log(`   GET /api/portfolio/:id/data-quality - Portfolio data quality`);
+
 // Start server
 app.listen(port, () => {
   console.log(`🚀 Portfolio API server running on http://localhost:${port}`);

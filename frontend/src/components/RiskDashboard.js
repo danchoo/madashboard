@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import BenchmarkSelector from './BenchmarkSelector';
 import RiskCalculationButton from './RiskCalculationButton';
+import DataQualityPanel from './DataQualityPanel';
 import { 
   Container, 
   Grid, 
@@ -99,6 +100,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
       </Typography>
 
     <BenchmarkSelector portfolioId={portfolioId} />
+    <DataQualityPanel portfolioId={portfolioId} />
 
     <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
     <RiskCalculationButton 
