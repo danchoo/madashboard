@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import BenchmarkSelector from './BenchmarkSelector';
+import RiskCalculationButton from './RiskCalculationButton';
 import { 
   Container, 
   Grid, 
@@ -16,6 +17,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
   const [riskData, setRiskData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Add this line
 
   const API_BASE_URL = 'http://localhost:5000/api';
 
@@ -38,7 +40,7 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
     };
 
     fetchRiskData();
-  }, [portfolioId]);
+  }, [portfolioId, refreshTrigger]);
 
   const formatPercent = (value) => {
     if (value === null || value === undefined) return 'N/A';
@@ -76,6 +78,15 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
 
   const riskLevel = getRiskLevel(riskData?.var_1d_95);
 
+  // Add this callback function here
+  const handleCalculationComplete = (newData) => {
+    if (newData) {
+      setRiskData(newData);
+    }
+    // Trigger a refresh of the data
+    setRefreshTrigger(prev => prev + 1);
+  };
+
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       {/* Header */}
@@ -88,9 +99,19 @@ const RiskDashboard = ({ portfolioId = 1 }) => {
       </Typography>
 
     <BenchmarkSelector portfolioId={portfolioId} />
-     
-      {/* Risk Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+
+    <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
+    <RiskCalculationButton 
+        portfolioId={portfolioId} 
+        onCalculationComplete={handleCalculationComplete}
+    />
+    <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+        Click to recalculate risk metrics with current benchmark
+    </Typography>
+    </Box>
+
+    {/* Risk Summary Cards */}
+    <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ height: '100%', border: '2px solid #d32f2f' }}>
             <CardContent>

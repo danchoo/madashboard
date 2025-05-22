@@ -43,7 +43,7 @@ class RealBetaRiskCalculator:
     
     def generate_benchmark_data(self, benchmark_code, days=252):
         """Generate realistic data for any benchmark"""
-        print(f"🔄 Generating {benchmark_code} benchmark data...")
+        print(f" Generating {benchmark_code} benchmark data...")
         
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
@@ -52,7 +52,7 @@ class RealBetaRiskCalculator:
         cursor.execute("SELECT benchmark_id FROM benchmarks WHERE code = %s", [benchmark_code])
         result = cursor.fetchone()
         if not result:
-            print(f"❌ {benchmark_code} benchmark not found in database")
+            print(f" {benchmark_code} benchmark not found in database")
             return
         
         benchmark_id = result[0]
@@ -123,7 +123,7 @@ class RealBetaRiskCalculator:
         
         conn.commit()
         conn.close()
-        print(f"✅ Generated {days} days of {benchmark_code} data")
+        print(f" Generated {days} days of {benchmark_code} data")
     
     def generate_asx200_data(self, days=252):
         """Generate realistic ASX 200 index data"""
@@ -154,7 +154,7 @@ class RealBetaRiskCalculator:
         
         conn.commit()
         conn.close()
-        print("✅ Created initial realistic prices for all securities")
+        print(" Created initial realistic prices for all securities")
     
     def generate_realistic_price_history(self, days=252):
         """Generate realistic price history correlated with selected benchmark"""
@@ -257,7 +257,7 @@ class RealBetaRiskCalculator:
         
         conn.commit()
         conn.close()
-        print(f"✅ Generated {days} days of correlated price history vs {benchmark_code}")
+        print(f" Generated {days} days of correlated price history vs {benchmark_code}")
     
     def calculate_portfolio_returns(self, portfolio_id=1):
         """Calculate actual portfolio returns from holdings and prices"""
@@ -273,10 +273,10 @@ class RealBetaRiskCalculator:
         
         holdings = cursor.fetchall()
         if not holdings:
-            print("❌ No portfolio holdings found!")
+            print(" No portfolio holdings found!")
             return None
             
-        print(f"📊 Calculating returns for portfolio with {len(holdings)} holdings:")
+        print(f" Calculating returns for portfolio with {len(holdings)} holdings:")
         for _, ticker, weight in holdings:
             print(f"   {ticker}: {weight*100:.1f}%")
         
@@ -341,7 +341,7 @@ class RealBetaRiskCalculator:
         conn.commit()
         conn.close()
         
-        print(f"✅ Calculated {len(portfolio_returns)} days of real portfolio returns")
+        print(f" Calculated {len(portfolio_returns)} days of real portfolio returns")
         return np.array(portfolio_returns)
     
     def calculate_real_beta(self, portfolio_id=1):
@@ -351,7 +351,7 @@ class RealBetaRiskCalculator:
         benchmark_code = benchmark_info['code']
         benchmark_name = benchmark_info['name']
         
-        print(f"📊 Calculating beta against: {benchmark_code} ({benchmark_name})")
+        print(f" Calculating beta against: {benchmark_code} ({benchmark_name})")
         
         conn = psycopg2.connect(**self.db_config)
         cursor = conn.cursor()
@@ -377,7 +377,7 @@ class RealBetaRiskCalculator:
         conn.close()
         
         if not portfolio_data or not benchmark_data:
-            print(f"❌ Insufficient data for beta calculation against {benchmark_code}")
+            print(f" Insufficient data for beta calculation against {benchmark_code}")
             return None
         
         portfolio_df = pd.DataFrame(portfolio_data, columns=['date', 'portfolio_return'])
@@ -390,7 +390,7 @@ class RealBetaRiskCalculator:
         merged = pd.merge(portfolio_df, benchmark_df, on='date', how='inner')
         
         if len(merged) < 30:
-            print(f"❌ Insufficient overlapping data for beta calculation against {benchmark_code}")
+            print(f" Insufficient overlapping data for beta calculation against {benchmark_code}")
             return None
         
         portfolio_returns = merged['portfolio_return'].values
@@ -405,7 +405,7 @@ class RealBetaRiskCalculator:
         beta = covariance / benchmark_variance
         correlation = np.corrcoef(portfolio_returns, benchmark_returns)[0, 1]
         
-        print(f"📊 Real Beta Calculation against {benchmark_code}:")
+        print(f"   Real Beta Calculation against {benchmark_code}:")
         print(f"   Portfolio vs {benchmark_code} correlation: {correlation:.3f}")
         print(f"   Calculated Beta: {beta:.3f}")
         
@@ -418,19 +418,19 @@ class RealBetaRiskCalculator:
         benchmark_info = self.get_portfolio_benchmark(portfolio_id)
         benchmark_code = benchmark_info['code']
         
-        print(f"🔄 Setting up benchmark data for {benchmark_code}...")
+        print(f"Setting up benchmark data for {benchmark_code}...")
         
         # Generate data for the selected benchmark
         self.generate_benchmark_data(benchmark_code)
         
-        print("🔄 Generating correlated price history...")
+        print(" Generating correlated price history...")
         self.generate_realistic_price_history()
         
-        print("🔄 Calculating portfolio returns...")
+        print(" Calculating portfolio returns...")
         portfolio_returns = self.calculate_portfolio_returns(portfolio_id)
         
         if portfolio_returns is None:
-            print("❌ Could not calculate portfolio returns")
+            print(" Could not calculate portfolio returns")
             return
         
         # Calculate standard risk metrics
@@ -505,7 +505,7 @@ class RealBetaRiskCalculator:
         conn.commit()
         conn.close()
         
-        print(f"✅ REAL Risk metrics with proper beta against {benchmark_code}:")
+        print(f"   REAL Risk metrics with proper beta against {benchmark_code}:")
         print(f"   VaR (95%): {var_95:.4f} ({var_95*100:.2f}%)")
         print(f"   Annual Volatility: {annual_vol:.4f} ({annual_vol*100:.1f}%)")
         print(f"   Sharpe Ratio: {sharpe:.4f}")

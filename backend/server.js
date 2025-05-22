@@ -288,6 +288,106 @@ console.log(`   GET /api/benchmarks - Available benchmarks`);
 console.log(`   GET /api/portfolio/:id/benchmark - Portfolio's current benchmark`);
 console.log(`   PUT /api/portfolio/:id/benchmark - Update portfolio benchmark`);
 
+// Trigger risk calculation for portfolio
+app.post('/api/portfolio/:id/calculate-risk', async (req, res) => {
+  try {
+    const portfolioId = req.params.id;
+    
+    console.log('Starting risk calculation for portfolio:', portfolioId);
+    
+    // Import and run the risk calculator
+    const { spawn } = require('child_process');
+    
+    // Run the Python risk calculator
+    const pythonProcess = spawn('python', ['risk_calculator.py'], {
+      cwd: __dirname,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    pythonProcess.stdout.on('data', (data) => {
+      const message = data.toString();
+      output += message;
+      console.log('Python stdout:', message);
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      const message = data.toString();
+      errorOutput += message;
+      console.error('Python stderr:', message);
+    });
+    
+    pythonProcess.on('error', (error) => {
+      console.error('Failed to start Python process:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to start Python process',
+        error: error.message,
+        details: 'Make sure Python is installed and accessible'
+      });
+    });
+    
+    pythonProcess.on('close', async (code) => {
+      console.log(`Python process exited with code: ${code}`);
+      console.log('Full output:', output);
+      console.log('Full error output:', errorOutput);
+      
+      if (code === 0) {
+        // Success - fetch the updated risk metrics
+        try {
+          const result = await pool.query(`
+            SELECT 
+              portfolio_name,
+              calculation_date,
+              var_1d_95,
+              var_1d_99,
+              annualized_volatility,
+              sharpe_ratio,
+              max_drawdown,
+              tracking_error,
+              beta,
+              correlation
+            FROM v_latest_risk_metrics
+            WHERE portfolio_id = $1
+          `, [portfolioId]);
+
+          res.json({
+            success: true,
+            message: 'Risk calculation completed successfully',
+            output: output,
+            data: result.rows[0] || null
+          });
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          res.status(500).json({
+            success: false,
+            message: 'Risk calculation completed but failed to fetch results',
+            error: dbError.message
+          });
+        }
+      } else {
+        res.status(500).json({
+          success: false,
+          message: `Python process failed with exit code ${code}`,
+          error: errorOutput,
+          output: output,
+          details: 'Check Python script and dependencies'
+        });
+      }
+    });
+
+  } catch (err) {
+    console.error('Error triggering risk calculation:', err);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to start risk calculation',
+      error: err.message 
+    });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`🚀 Portfolio API server running on http://localhost:${port}`);
